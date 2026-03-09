@@ -27,6 +27,8 @@ ShieldScan is a sleek, dark-themed antivirus dashboard that wraps ClamAV with a 
 
 No bloat. No ads. No cloud. Just your machine, ClamAV, and a UI that doesn't look like it was made in 2003.
 
+For windows and Mac os it will be added in the future.
+
 ---
 
 ## ✦ Features
@@ -52,8 +54,9 @@ No bloat. No ads. No cloud. Just your machine, ClamAV, and a UI that doesn't loo
 
 
 ![Dashboard](screenshots/dashboard.png)
-![Scan](screenshots/scan.png)
+![Scanfiles](screenshots/scanfiles.png)
 ![Quarantine](screenshots/quarantine.png)
+![logs](screenshots/logs.png)
 
 ```
 
