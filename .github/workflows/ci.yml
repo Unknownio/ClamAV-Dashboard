@@ -25,4 +25,4 @@ jobs:
           pip install pytest PyQt5
 
       - name: Run tests
-        run: pytest test_shieldscan.py -v
+        run: pytest test_workflow.py -v
