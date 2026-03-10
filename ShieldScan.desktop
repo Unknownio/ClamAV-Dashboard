@@ -1,5 +1,5 @@
 [Desktop Entry]
-Name=ShieldScan
+Name=ClamAV
 Comment=Antivirus Dashboard
 Exec=python3 /home/luni/Desktop/clan-gui.py
 Icon=security-high
