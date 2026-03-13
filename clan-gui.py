@@ -26,7 +26,6 @@ from PyQt5.QtGui import (
 QUARANTINE_DIR = os.path.join(Path.home(), ".clamav_web_ui_client_quarantine")
 os.makedirs(QUARANTINE_DIR, exist_ok=True)
 
-# Manifest: maps quarantine filename → {"original": str, "threat": str, "date": str}
 QUARANTINE_MANIFEST = os.path.join(QUARANTINE_DIR, ".manifest.json")
 
 def _load_manifest():
@@ -43,15 +42,12 @@ def _save_manifest(data):
         json.dump(data, f, indent=2)
 
 def quarantine_file(original_path, threat_name):
-    """Move file to quarantine dir, strip all permissions. Returns quarantine path or None."""
     try:
         import json, uuid
-        # Give it a unique name so collisions don't overwrite
         safe_name = f"{uuid.uuid4().hex}_{os.path.basename(original_path)}"
         dest = os.path.join(QUARANTINE_DIR, safe_name)
         shutil.move(original_path, dest)
-        os.chmod(dest, 0o000)   # no read/write/execute for anyone
-
+        os.chmod(dest, 0o000)
         manifest = _load_manifest()
         manifest[safe_name] = {
             "original": original_path,
@@ -64,7 +60,6 @@ def quarantine_file(original_path, threat_name):
         return None, str(e)
 
 def restore_file(safe_name):
-    """Restore file from quarantine to original location. Returns (ok, msg)."""
     try:
         manifest = _load_manifest()
         if safe_name not in manifest:
@@ -80,12 +75,11 @@ def restore_file(safe_name):
         return False, str(e)
 
 def delete_quarantined(safe_name):
-    """Permanently delete a quarantined file. Returns (ok, msg)."""
     try:
         manifest = _load_manifest()
         src = os.path.join(QUARANTINE_DIR, safe_name)
         if os.path.exists(src):
-            os.chmod(src, 0o644)   # need read perms to delete on some systems
+            os.chmod(src, 0o644)
             os.remove(src)
         if safe_name in manifest:
             del manifest[safe_name]
@@ -93,6 +87,7 @@ def delete_quarantined(safe_name):
         return True, "Deleted."
     except Exception as e:
         return False, str(e)
+
 
 # ── Colour palette ───────────────────────────────────────────────────────────
 BG_DARK   = "#0a0e1a"
@@ -136,7 +131,7 @@ QHeaderView::section {{
     font-size: 10px; letter-spacing: 1px;
 }}
 QProgressBar {{
-    background: {BG_DARK}; border: none; border-radius: 3px; height: 4px;
+    background: {BG_DARK}; border: none; border-radius: 3px; height: 6px;
 }}
 QProgressBar::chunk {{ border-radius: 3px; }}
 QLineEdit {{
@@ -167,7 +162,7 @@ QPushButton:focus {{
 """
 
 
-# ── Persistence ─────────────────────────────────────────────────────────────
+# ── Persistence ──────────────────────────────────────────────────────────────
 LAST_SCAN_FILE = os.path.join(Path.home(), ".clamav_web_ui_client_last_scan")
 
 def save_last_scan():
@@ -206,7 +201,7 @@ def count_files(paths):
     return total
 
 
-# ── Worker thread ────────────────────────────────────────────────────────────
+# ── Worker thread ─────────────────────────────────────────────────────────────
 class ScanWorker(QThread):
     progress  = pyqtSignal(int, int)
     file_done = pyqtSignal(dict)
@@ -311,7 +306,7 @@ class ScanWorker(QThread):
             return 0
 
 
-# ── Reusable widgets ─────────────────────────────────────────────────────────
+# ── Reusable widgets ──────────────────────────────────────────────────────────
 def card(parent=None):
     w = QFrame(parent)
     w.setStyleSheet(f"QFrame {{ background: {BG_CARD}; border: none; border-radius: 12px; }}")
@@ -334,9 +329,9 @@ def btn(text, primary=False, danger=False, small=False):
     b = QPushButton(text)
     fs = 11 if small else 13
     if primary:
-        bg, hover = ACCENT, ""
+        bg, hover = ACCENT, ACCENT2
     elif danger:
-        bg, hover = "", RED
+        bg, hover = BG_CARD, RED
     else:
         bg, hover = BG_CARD, "#1e293b"
 
@@ -345,7 +340,7 @@ def btn(text, primary=False, danger=False, small=False):
             background: {bg}; color: {TEXT_PRI}; border: none;
             border-radius: 8px; font-size: {fs}px; font-weight: 600;
         }}
-        QPushButton:hover {{ background: {hover}; border-color: {ACCENT if primary else BORDER}; }}
+        QPushButton:hover {{ background: {hover}; }}
         QPushButton:pressed {{ background: {hover}; }}
         QPushButton:disabled {{ background: {BG_DARK}; color: {TEXT_MUT}; }}
     """)
@@ -358,7 +353,6 @@ class KpiCard(QFrame):
         self.color = color
         self.setStyleSheet(f"QFrame {{ background: {BG_CARD}; border: none; border-radius: 12px; }}")
         lay = QVBoxLayout(self)
-        # Flush margins — numbers and text sit clean without boxy spacing
         lay.setContentsMargins(16, 14, 16, 14)
         lay.setSpacing(3)
 
@@ -387,10 +381,13 @@ class ScanBar(QFrame):
         super().__init__()
         self.setStyleSheet(f"background: {BG_CARD}; border: none; border-radius: 10px;")
         self._start_time = None
+        self._shimmer_pos = 0
+
         lay = QVBoxLayout(self)
         lay.setContentsMargins(14, 10, 14, 10)
         lay.setSpacing(4)
 
+        # ── top row: filename label + percentage ──
         row = QHBoxLayout()
         self.lbl_file = label("No scan running", 11, color=TEXT_SEC)
         row.addWidget(self.lbl_file)
@@ -399,24 +396,63 @@ class ScanBar(QFrame):
         row.addWidget(self.lbl_pct)
         lay.addLayout(row)
 
+        # ── progress bar ──
         self.bar = QProgressBar()
         self.bar.setRange(0, 100)
         self.bar.setValue(0)
         self.bar.setTextVisible(False)
-        self.bar.setFixedHeight(4)
+        self.bar.setFixedHeight(6)
         self.bar.setStyleSheet(f"""
-            QProgressBar {{ background: {BG_DARK}; border-radius: 2px; }}
-            QProgressBar::chunk {{ background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
-                stop:0 {ACCENT}, stop:1 {ACCENT2}); border-radius: 2px; }}
+            QProgressBar {{
+                background: {BG_DARK}; border-radius: 3px;
+            }}
+            QProgressBar::chunk {{
+                background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
+                    stop:0 {ACCENT}, stop:0.7 {ACCENT2}, stop:1 #ffffff33);
+                border-radius: 3px;
+            }}
         """)
         lay.addWidget(self.bar)
 
+        # ── shimmer overlay — child of the bar so it rides on top ──
+        self._shimmer = QLabel("", self.bar)
+        self._shimmer.setFixedSize(60, 6)
+        self._shimmer.setStyleSheet("""
+            background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
+                stop:0 transparent,
+                stop:0.5 rgba(255,255,255,80),
+                stop:1 transparent);
+            border-radius: 3px;
+        """)
+        self._shimmer.hide()
+
+        # ── shimmer timer ~~60 fps ──
+        self._shimmer_timer = QTimer(self)
+        self._shimmer_timer.setInterval(16)
+        self._shimmer_timer.timeout.connect(self._tick_shimmer)
+
+        # ── ETA label ──
         self.lbl_eta = label("", 10, color=TEXT_SEC)
         lay.addWidget(self.lbl_eta)
 
+    # ── shimmer tick ─────────────────────────────────────────────────────────
+    def _tick_shimmer(self):
+        bar_w = self.bar.width()
+        fill_w = int(self.bar.value() / 100 * bar_w)
+        if fill_w < 10:
+            self._shimmer.hide()
+            return
+        self._shimmer.show()
+        self._shimmer_pos = (self._shimmer_pos + 3) % (fill_w + 60)
+        x = self._shimmer_pos - 60
+        self._shimmer.move(max(0, x), 0)
+
+    # ── public API ───────────────────────────────────────────────────────────
     def start(self):
         self._start_time = time.time()
+        self._shimmer_pos = 0
         self.lbl_eta.setText("Estimating time…")
+        self._shimmer_timer.start()
 
     def update(self, current, total):
         pct = int(current / total * 100) if total else 0
@@ -431,21 +467,28 @@ class ScanBar(QFrame):
 
     def _fmt(self, secs):
         secs = int(secs)
-        if secs < 60: return f"{secs}s"
+        if secs < 60:
+            return f"{secs}s"
         elif secs < 3600:
-            m, s = divmod(secs, 60); return f"{m}m {s}s"
+            m, s = divmod(secs, 60)
+            return f"{m}m {s}s"
         else:
-            h, rem = divmod(secs, 3600); m, s = divmod(rem, 60); return f"{h}h {m}m {s}s"
+            h, rem = divmod(secs, 3600)
+            m, s = divmod(rem, 60)
+            return f"{h}h {m}m {s}s"
 
     def reset(self, msg="No scan running"):
+        self._shimmer_timer.stop()
+        self._shimmer.hide()
         self._start_time = None
+        self._shimmer_pos = 0
         self.bar.setValue(0)
         self.lbl_pct.setText("—")
         self.lbl_file.setText(msg)
         self.lbl_eta.setText("")
 
 
-# ── Sidebar nav ──────────────────────────────────────────────────────────────
+# ── Sidebar nav ───────────────────────────────────────────────────────────────
 class NavItem(QWidget):
     clicked = pyqtSignal()
 
@@ -476,7 +519,7 @@ class NavItem(QWidget):
         self.clicked.emit()
 
 
-# ── Main window ──────────────────────────────────────────────────────────────
+# ── Main window ───────────────────────────────────────────────────────────────
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -498,7 +541,6 @@ class MainWindow(QMainWindow):
         self._load_quarantine_from_manifest()
 
     def _load_quarantine_from_manifest(self):
-        """Populate the quarantine table from disk manifest on startup."""
         manifest = _load_manifest()
         for safe_name, info in manifest.items():
             q_path = os.path.join(QUARANTINE_DIR, safe_name)
@@ -586,7 +628,7 @@ class MainWindow(QMainWindow):
         for i, item in enumerate(self.nav_items):
             item.set_active(i == idx)
 
-    # ── Dashboard page ───────────────────────────────────────────────────────
+    # ── Dashboard page ────────────────────────────────────────────────────────
     def _page_dashboard(self):
         page = QWidget()
         lay = QVBoxLayout(page)
@@ -625,7 +667,7 @@ class MainWindow(QMainWindow):
 
         return page
 
-    # ── Scan page ────────────────────────────────────────────────────────────
+    # ── Scan page ─────────────────────────────────────────────────────────────
     def _page_scan(self):
         page = QWidget()
         lay = QVBoxLayout(page)
@@ -697,7 +739,7 @@ class MainWindow(QMainWindow):
 
         return page
 
-    # ── Quarantine page ──────────────────────────────────────────────────────
+    # ── Quarantine page ───────────────────────────────────────────────────────
     def _page_quarantine(self):
         page = QWidget()
         lay = QVBoxLayout(page)
@@ -732,7 +774,7 @@ class MainWindow(QMainWindow):
 
         return page
 
-    # ── Logs page ────────────────────────────────────────────────────────────
+    # ── Logs page ─────────────────────────────────────────────────────────────
     def _page_logs(self):
         page = QWidget()
         lay = QVBoxLayout(page)
@@ -758,7 +800,7 @@ class MainWindow(QMainWindow):
             self._log("WARNING: clamscan not found. Install with: sudo apt install clamav")
         return page
 
-    # ── Helpers ──────────────────────────────────────────────────────────────
+    # ── Helpers ───────────────────────────────────────────────────────────────
     def _make_results_table(self):
         t = QTableWidget(0, 4)
         t.setHorizontalHeaderLabels(["FILE", "STATUS", "THREAT", "SIZE"])
@@ -769,7 +811,6 @@ class MainWindow(QMainWindow):
         t.verticalHeader().setVisible(False)
         t.setEditTriggers(QAbstractItemView.NoEditTriggers)
         t.setSelectionBehavior(QAbstractItemView.SelectRows)
-        # Tighter row height — no bloated cell boxing
         t.verticalHeader().setDefaultSectionSize(28)
         return t
 
@@ -863,20 +904,14 @@ class MainWindow(QMainWindow):
         self.status_sub.setText(f"Last scan: {label_str}")
 
         if days >= 7:
-            self.status_card.setStyleSheet
-               # f"background: #2d1a00; border: 1px solid {YELLOW};"
             self.status_dot.setText("● Scan Overdue")
             self.status_dot.setStyleSheet(f"color: {YELLOW}; background: transparent;")
             self.warn_label.setVisible(True)
         elif days == 9999:
-            self.status_card.setStyleSheet
-               # f"background: #2d1a00; border: 1px solid {YELLOW};"
             self.status_dot.setText("● Never Scanned")
             self.status_dot.setStyleSheet(f"color: {YELLOW}; background: transparent;")
             self.warn_label.setVisible(True)
         else:
-            self.status_card.setStyleSheet
-             #   f"background: #052e16; border: 1px solid #166534;"
             self.status_dot.setText("● Protected")
             self.status_dot.setStyleSheet(f"color: {GREEN}; background: transparent;")
             self.warn_label.setVisible(False)
@@ -938,6 +973,7 @@ class MainWindow(QMainWindow):
             self.btn_pause.setText("▶  Resume")
             self.scan_bar.lbl_file.setText("Scan paused…")
             self.scan_bar.lbl_eta.setText("")
+            self.scan_bar._shimmer_timer.stop()
             self.status_dot.setText("● Paused")
             self.status_dot.setStyleSheet(f"color: {YELLOW}; background: transparent;")
             self.status_card.setStyleSheet(
@@ -947,6 +983,7 @@ class MainWindow(QMainWindow):
             self.worker.resume()
             self._paused = False
             self.btn_pause.setText("⏸  Pause")
+            self.scan_bar._shimmer_timer.start()
             self.status_dot.setText("● Scanning…")
             self.status_dot.setStyleSheet(f"color: {ACCENT}; background: transparent;")
             self.status_card.setStyleSheet(
@@ -969,7 +1006,6 @@ class MainWindow(QMainWindow):
         self.kpi_scanned += 1
         if result["status"] == "Threat":
             self.kpi_threats += 1
-            # Actually move the file to quarantine and lock it
             q_path, safe_name = quarantine_file(result["path"], result["threat"])
             if q_path:
                 self._log(f"Quarantined: {result['path']} → {q_path}")
@@ -999,7 +1035,6 @@ class MainWindow(QMainWindow):
         self.q_table.setItem(r, 1, t_item)
         self.q_table.setItem(r, 2, QTableWidgetItem(date))
 
-        # Restore button
         restore_btn = QPushButton("↩ Restore")
         restore_btn.setCursor(Qt.PointingHandCursor)
         restore_btn.setStyleSheet(f"""
@@ -1009,10 +1044,9 @@ class MainWindow(QMainWindow):
             }}
             QPushButton:hover {{ background: {ACCENT}; }}
         """)
-        restore_btn.clicked.connect(lambda _, sn=safe_name, row=r: self._restore_item(sn))
+        restore_btn.clicked.connect(lambda _, sn=safe_name: self._restore_item(sn))
         self.q_table.setCellWidget(r, 3, restore_btn)
 
-        # Delete button
         del_btn = QPushButton("🗑 Delete")
         del_btn.setCursor(Qt.PointingHandCursor)
         del_btn.setStyleSheet(f"""
@@ -1026,12 +1060,6 @@ class MainWindow(QMainWindow):
         self.q_table.setCellWidget(r, 4, del_btn)
 
     def _find_quarantine_row(self, safe_name):
-        """Find row index by matching safe_name stored in the restore button."""
-        for r in range(self.q_table.rowCount()):
-            rb = self.q_table.cellWidget(r, 3)
-            if rb and hasattr(rb, '_safe_name') and rb._safe_name == safe_name:
-                return r
-        # fallback: scan path column via manifest
         manifest = _load_manifest()
         if safe_name in manifest:
             orig = manifest[safe_name]["original"]
@@ -1049,10 +1077,12 @@ class MainWindow(QMainWindow):
         )
         if reply != QMessageBox.Yes:
             return
+        # Grab original path BEFORE restore_file wipes it from the manifest
+        orig = _load_manifest().get(safe_name, {}).get("original", "")
         ok, msg = restore_file(safe_name)
         if ok:
             self._log(f"Restored: {msg}")
-            self._remove_quarantine_row_by_safe_name(safe_name)
+            self._remove_quarantine_row(orig)
         else:
             QMessageBox.critical(self, "Restore Failed", f"Could not restore file:\n{msg}")
             self._log(f"Restore failed: {msg}")
@@ -1065,26 +1095,23 @@ class MainWindow(QMainWindow):
         )
         if reply != QMessageBox.Yes:
             return
+        # Grab original path BEFORE delete_quarantined wipes it from the manifest
+        orig = _load_manifest().get(safe_name, {}).get("original", "")
         ok, msg = delete_quarantined(safe_name)
         if ok:
             self._log(f"Permanently deleted quarantined file ({safe_name}).")
-            self._remove_quarantine_row_by_safe_name(safe_name)
+            self._remove_quarantine_row(orig)
         else:
             QMessageBox.critical(self, "Delete Failed", f"Could not delete file:\n{msg}")
             self._log(f"Delete failed: {msg}")
 
-    def _remove_quarantine_row_by_safe_name(self, safe_name):
-        """Remove the table row matching this safe_name by checking the manifest original path."""
-        manifest = _load_manifest()
-        orig = manifest.get(safe_name, {}).get("original", "")
+    def _remove_quarantine_row(self, original_path):
+        """Remove the table row whose first column matches original_path."""
         for r in range(self.q_table.rowCount()):
             item = self.q_table.item(r, 0)
-            if item and item.text() == orig:
+            if item and item.text() == original_path:
                 self.q_table.removeRow(r)
                 break
-        else:
-            # If manifest already updated (already removed), just remove by index scan of path
-            pass
         if self.q_table.rowCount() == 0:
             self.q_empty.setVisible(True)
         self._update_kpis()
@@ -1111,7 +1138,7 @@ class MainWindow(QMainWindow):
         self.kpi_quarant.set_value(self.kpi_threats)
 
 
-# ── Entry point ──────────────────────────────────────────────────────────────
+# ── Entry point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
